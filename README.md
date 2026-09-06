@@ -44,16 +44,17 @@ RunFlow/
 ├─ ROADMAP.md
 ├─ ASTRA_WORKFLOW.md
 ├─ DATA_POLICY.md
-├─ assets/              # 公開禁止アセットはGit管理外
-├─ references/
-├─ models/
-├─ motions/
-├─ experiments/
-├─ cfd/
-├─ results/
-├─ figures/
+├─ configs/             # pilot・未確定CFD・固定ツール版
+├─ schemas/             # 入出力契約
+├─ src/runflow/         # Python CLI
+├─ integrations/        # Unity/Blender取り込み
+├─ tests/
+├─ docs/
+├─ reports/             # 検証結果と残件
 ├─ scripts/
-└─ paper/
+├─ private/             # 原本・派生形状・実行結果（Git管理外）
+├─ .tools/              # 専用ツール（Git管理外）
+└─ artifacts/           # ローカル公開用出力（Git管理外）
 ```
 
 ## Scientific Principle
@@ -63,4 +64,11 @@ RunFlow は「面白い結果」を作ることではなく、**同一条件・�
 
 ## Status
 
-**Current stage:** Research Definition / Phase 0
+**Current stage:** Phase 0 — foundation, cylinder smoke and 16-frame direct capture/transport verified; canonical gait and intake review pending.
+
+実装・再実行手順: [Phase 0 runbook](docs/PHASE0.md)。
+検証済み事項と残件: [Phase 0 status](reports/phase0-status.md)。
+走行候補の実測とPMX/VMD骨名不一致: [Motion discovery](reports/motion-discovery.md)。
+固定版Unityの二重出力とBlender形状比較: [Direct capture](reports/direct-capture.md)。
+JSON Schemaは `schemas/`、CLIは `src/runflow/`、Unity/Blenderアダプターは `integrations/`。
+アセットと派生形状は `private/`、専用ツールは `.tools/`（Git管理外）。

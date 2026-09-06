@@ -1,0 +1,27 @@
+{
+  "schema_version": "1",
+  "source": {
+    "region": "JP", "platform": "Steam", "game_version": null,
+    "character_id": "1006", "costume_id": "100602",
+    "character_name": "オグリキャップ", "costume_name": "シンデレラグレイ",
+    "motion_id": null, "motion_kind": "normal_race_straight"
+  },
+  "tools": {
+    "umaviewer_commit": "d50b28379337b507751a7df705a10afeab2c37ce",
+    "umaviewer_release": "AutoBuild_d50b28379337b507751a7df705a10afeab2c37ce",
+    "blender": "4.2.23", "mmd_tools": "4.5.14", "capture_version": "0.1.0"
+  },
+  "unit": "m", "coordinate_system": "RF_X_FORWARD_Z_UP",
+  "height_m": null, "height_source": null, "height_measurement": null,
+  "transform": {
+    "source_to_rf": null, "meters_per_source_unit": null,
+    "reflection": null, "scale_evidence": null, "root_policy": "subtract_forward_x_only"
+  },
+  "gait": {
+    "start_s": null, "end_s": null, "contact_event": null,
+    "recording_step_s": null, "warmup_steps": null,
+    "key_reduction_level": 1, "sample_count": 16
+  },
+  "assets": [],
+  "preprocessing": []
+}

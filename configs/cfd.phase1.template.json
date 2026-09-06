@@ -1,0 +1,13 @@
+{
+  "inlet_direction": [-1, 0, 0],
+  "speed_m_s": null,
+  "air_density_kg_m3": null,
+  "dynamic_viscosity_Pa_s": null,
+  "ground_condition": null,
+  "turbulence_model": null,
+  "force_patches": [],
+  "domain_policy": null,
+  "mesh_policy": null,
+  "convergence_policy": null,
+  "solver": "OpenFOAM Foundation 14/incompressibleFluid"
+}

@@ -38,7 +38,7 @@ def test_audit_complete_requires_all_finished_artifacts(tmp_path):
 
 def test_done_includes_skipped_frames():
     ledger = {
-        "attempts": [{"phase_index": 1}],
+        "attempts": [{"phase_index": 1, "status": "PASS"}, {"phase_index": 7, "status": "FAIL"}],
         "skipped": [{"phase_index": 4}],
     }
     assert MODULE._done(ledger) == {1, 4}

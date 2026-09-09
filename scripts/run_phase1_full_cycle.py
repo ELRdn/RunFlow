@@ -190,7 +190,15 @@ def _remaining(request, ledger):
 
 
 def _done(ledger):
-    return {int(row["phase_index"]) for row in ledger.get("attempts", []) + ledger.get("skipped", [])}
+    # A failed attempt is evidence to retain, not a completed frame.  This
+    # lets an explicit recovery run retry a failed frame while keeping every
+    # previous attempt in the private ledger.
+    successful = {
+        int(row["phase_index"])
+        for row in ledger.get("attempts", [])
+        if row.get("status") == "PASS"
+    }
+    return successful | {int(row["phase_index"]) for row in ledger.get("skipped", [])}
 
 
 def _pid_is_running(pid):
@@ -256,10 +264,18 @@ def _recover_interrupted(output, ledger):
     return recovery
 
 
-def _run_repair(native_root, repair_root, frame, remaining):
+def _run_repair(native_root, repair_root, frame, remaining, *, retry=False):
     output = repair_root / f"frame-{frame:02d}-001"
     if output.exists():
-        raise ValueError("Existing incomplete repair output requires manual inspection: " + str(output))
+        if not retry:
+            raise ValueError("Existing incomplete repair output requires manual inspection: " + str(output))
+        serial = 1
+        while True:
+            candidate = repair_root / f"frame-{frame:02d}-retry-{serial:03d}"
+            if not candidate.exists():
+                output = candidate
+                break
+            serial += 1
     command = [
         sys.executable, str(REPO / "scripts/run_phase1_repair_pipeline.py"),
         "--native-root", str(native_root / f"frame-{frame:02d}-001"),
@@ -354,10 +370,12 @@ def run(request, *, output_root, native_root, mapping_path=None, selected=None,
         ))
     ledger = _load_or_create(output, run_request, mapping, verified, authority, prior)
     active = output / "active.json"
+    recovered_frame = None
     if active.exists():
         if not recover_interrupted:
             raise ValueError("Repaired cycle has an active/interrupted frame; inspect before continuing")
-        _recover_interrupted(output, ledger)
+        recovery = _recover_interrupted(output, ledger)
+        recovered_frame = recovery["phase_index"]
     write(output / "campaign.json", ledger)
     requested = list(range(FRAME_COUNT)) if selected is None else [int(item) for item in selected]
     if any(item not in range(FRAME_COUNT) for item in requested) or len(set(requested)) != len(requested):
@@ -398,7 +416,8 @@ def run(request, *, output_root, native_root, mapping_path=None, selected=None,
                 repair_execution = None
             else:
                 repair_output, repair_info, repair_execution = _run_repair(
-                    native_root, _portable_private(DEFAULT_REPAIR_ROOT), frame, _remaining(run_request, ledger))
+                    native_root, _portable_private(DEFAULT_REPAIR_ROOT), frame,
+                    _remaining(run_request, ledger), retry=(recovered_frame == frame))
                 repair_elapsed = float(repair_info.get("elapsed_s", repair_execution.get("elapsed_s", 0.0)))
                 ledger["repair_audit_compute_s"] += repair_elapsed
                 candidate = Path(repair_info["candidate"])

@@ -33,8 +33,10 @@ def sha(path):
 
 
 def validate_manifest(m, base):
-    if m.get("schema_version") != "1" or m.get("route") not in {"mmd_tools_pmx_vmd", "obj_sequence"}:
+    dense = m.get('schema_version') == 'phase1-cycle-adapter-1'
+    if m.get("schema_version") not in {"1", 'phase1-cycle-adapter-1'} or m.get("route") not in {"mmd_tools_pmx_vmd", "obj_sequence"}:
         raise ValueError("Unsupported manifest version/route")
+    if dense and m.get('route')!='obj_sequence':raise ValueError('Dense phase capture requires direct baked input')
     matrix = m["source_to_rf"]
     scale = m["meters_per_source_unit"]
     if len(matrix) != 4 or any(len(row) != 4 for row in matrix) or matrix[3] != [0,0,0,1]:
@@ -47,8 +49,9 @@ def validate_manifest(m, base):
             if not math.isclose(dot, scale*scale if i == j else 0, abs_tol=1e-10):
                 raise ValueError("Transform scale mismatch or nonuniform deformation")
     times = m["samples"]
-    if len(times) != 16 or any(not math.isfinite(t["time_s"]) for t in times):
-        raise ValueError("Exactly 16 finite sample times required")
+    expected_count=32 if dense else 16
+    if len(times) != expected_count or any(not math.isfinite(t["time_s"]) for t in times):
+        raise ValueError(f"Exactly {expected_count} finite sample times required")
     if any(b["time_s"] <= a["time_s"] for a,b in zip(times,times[1:])):
         raise ValueError("Sample times must increase")
     if not m.get("parts_review_reference"):
@@ -101,6 +104,8 @@ def capture(m, base, output):
     import bpy
     if bpy.app.version[:2] != (4,2):
         raise ValueError("This adapter is pinned to Blender 4.2.x")
+    if m['schema_version']=='phase1-cycle-adapter-1' and bpy.app.version[:3]!=(4,2,23):
+        raise ValueError('Dense phase transport requires Blender 4.2.23')
     if not bpy.app.background:
         raise ValueError("Run in dedicated background process; interactive scenes are not modified")
     output.mkdir(parents=True, exist_ok=False)

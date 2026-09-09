@@ -29,9 +29,9 @@ def verify_inputs(root):
         input_record_sha256=digest(records[0]))
 
 
-def frames(directory):
+def frames(directory, count=16):
     paths=sorted(directory.glob('*.snapshot.json'))
-    if len(paths)!=16: raise ValueError('Exactly 16 real snapshots required: '+str(directory))
+    if len(paths)!=count: raise ValueError(f'Exactly {count} real snapshots required: '+str(directory))
     values=[read(p) for p in paths]
     for v in values: validate('snapshot',v)
     if any(a['time_s']>=b['time_s'] for a,b in zip(values,values[1:])):
@@ -47,14 +47,18 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('--capture-root',type=Path,required=True)
     p.add_argument('--blender',type=Path,required=True)
+    p.add_argument('--samples',type=int,choices=[16,32],default=16)
     a=p.parse_args()
     root=a.capture_root.resolve()
     repo=Path(__file__).resolve().parents[1]
     if not root.is_relative_to(repo/'private'): raise ValueError('Private capture required')
     if read(root/'completed.json')['execution_status']!='CAPTURED': raise ValueError('Capture did not complete')
+    if read(root/'completed.json')['samples_per_run']!=a.samples:raise ValueError('Declared capture count differs')
     input_verification=verify_inputs(root)
-    paths,first=frames(root/'unity-a')
-    _,second=frames(root/'unity-b')
+    adopted = (root/'adoption-input.json').exists()
+    review_ref = ('Prior multiview review with costume-leg exception; adoption input sha256='+file_hash(root/'adoption-input.json')) if adopted else 'UNREVIEWED diagnostic transport only; no human approval'
+    paths,first=frames(root/'unity-a',a.samples)
+    _,second=frames(root/'unity-b',a.samples)
     samples=[]
     for path,value in zip(paths,first):
         obj=path.with_name(path.name.replace('.snapshot.json','.obj'))
@@ -63,14 +67,14 @@ def main():
     adapter=root/'diagnostic-adapter.json'
     candidate=root/'blender'
     if candidate.exists() or adapter.exists(): raise ValueError('Comparison requires a fresh output location')
-    write(adapter,dict(schema_version='1',route='obj_sequence',source_to_rf=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
-        meters_per_source_unit=1,parts_review_reference='UNREVIEWED diagnostic transport only; no human approval',samples=samples))
+    write(adapter,dict(schema_version='phase1-cycle-adapter-1' if a.samples==32 else '1',route='obj_sequence',source_to_rf=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+        meters_per_source_unit=1,parts_review_reference=review_ref,samples=samples))
     with (root/'blender.log').open('w',encoding='utf-8') as log:
         result=subprocess.run([str(a.blender.resolve()),'--background','--factory-startup','--python-exit-code','2',
             '--python',str(repo/'integrations/blender/runflow_capture.py'),'--','--manifest',str(adapter),'--output',str(candidate)],
             stdout=log,stderr=subprocess.STDOUT,timeout=600)
     if result.returncode: raise ValueError('Blender import failed; see private blender.log')
-    _,imported=frames(candidate)
+    _,imported=frames(candidate,a.samples)
     checks=[]
     for reference,repeat,blender in zip(first,second,imported):
         if abs(reference['time_s']-blender['time_s'])>1e-7: raise ValueError('Import time mismatch')
@@ -92,9 +96,10 @@ def main():
         route='unity_baked_obj_transport',scientific_status='PENDING_HUMAN_REVIEW',ranking_eligible=False,
         canonical_verified=False,contact_phase_verified=False,physical_scale_reviewed=False,
         independent_joint_comparison=False,parts_human_reviewed=False,
+        research_conditions_adopted=adopted, prior_multiview_parts_review_applied=adopted,
         note='Shared Unity joints are transport metadata. This is not independent PMX/VMD or official-game fidelity validation.',checks=checks)
     write(root/'comparison.json',report)
-    print(report['execution_status'],'16 frames; scientific/contact/scale/parts approval pending')
+    print(report['execution_status'],f'{a.samples} frames; independent game fidelity and CFD scientific approval not established')
     return 0 if report['execution_status']=='PASS' else 2
 
 

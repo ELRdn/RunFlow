@@ -54,6 +54,9 @@ namespace RunFlow
         [Min(0f)] public float warmupSeconds = 0.5f;
         [Min(1)] public int simulationStepsPerSample = 4;
         public bool allowLoopBeyondClipLength;
+        public double startPhaseSeconds;
+        float simulationDt;
+        double EffectiveStartPhase { get { return (double)(float)(startPhaseSeconds / clip.length) * clip.length; } }
 
         [Header("Source -> RF transform (required, no default assumption)")]
         public Matrix4x4 sourceToRf = Matrix4x4.identity;
@@ -120,8 +123,10 @@ namespace RunFlow
             if (string.IsNullOrWhiteSpace(animatorStateName)) throw new InvalidOperationException("Explicit controller state required; UmaViewer uses motion_2, not the clip filename.");
             if (animator.runtimeAnimatorController == null)
                 throw new InvalidOperationException("RunFlowCapture: animator has no RuntimeAnimatorController. Put the pinned clip in a state and retry.");
-            if (frameCount != 16 || simulationStepsPerSample < 1) throw new InvalidOperationException("RunFlowCapture: 16 samples and positive simulationStepsPerSample required.");
+            if ((frameCount != 16 && frameCount != 32) || simulationStepsPerSample < 1) throw new InvalidOperationException("RunFlowCapture: 16 or 32 samples and positive simulationStepsPerSample required.");
             if (fps <= 0f || !IsFinite(fps)) throw new InvalidOperationException("RunFlowCapture: fps must be positive finite.");
+            if (double.IsNaN(startPhaseSeconds) || double.IsInfinity(startPhaseSeconds) || startPhaseSeconds < 0 || startPhaseSeconds >= clip.length)
+                throw new InvalidOperationException("Start phase must be finite and inside the clip.");
             if (warmupSeconds < 0f || !IsFinite(warmupSeconds)) throw new InvalidOperationException("RunFlowCapture: warmupSeconds must be finite >= 0.");
             if (!sourceToRfConfigured) throw new InvalidOperationException("RunFlowCapture: sourceToRf is not configured. Set the explicit 4x4 source->RF matrix and tick sourceToRfConfigured. No axis/scale is assumed.");
             if (!IsFinite(rfScale) || rfScale <= 0f) throw new InvalidOperationException("RunFlowCapture: rfScale must be positive finite (source unit -> metres is explicit).");
@@ -177,7 +182,10 @@ namespace RunFlow
         public void CaptureSequence()
         {
             Validate();
-            float dt = 1f / fps;
+            // Store the actual binary32 step; Mono may keep an inline division at
+            // higher precision until it is stored or passed to Animator.Update.
+            simulationDt = BitConverter.ToSingle(BitConverter.GetBytes(1f / fps), 0);
+            float dt = simulationDt;
             string outDir = Path.IsPathRooted(outputDirectory)
                 ? outputDirectory
                 : Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputDirectory));
@@ -188,7 +196,7 @@ namespace RunFlow
             animator.Rebind();
             if (!animator.HasState(0, Animator.StringToHash(animatorStateName)))
                 throw new InvalidOperationException("Configured controller state is missing.");
-            try { animator.Play(animatorStateName, 0, 0f); }
+            try { animator.Play(animatorStateName, 0, (float)(startPhaseSeconds / clip.length)); }
             catch { throw new InvalidOperationException("RunFlowCapture: configured Animator state failed: " + animatorStateName); }
             animator.Update(0f);
             if (!animator.GetCurrentAnimatorClipInfo(0).Any(info => info.clip == clip))
@@ -203,7 +211,7 @@ namespace RunFlow
             for (int frame = 0; frame < frameCount; frame++)
             {
                 if (frame > 0) for (int step=0; step<simulationStepsPerSample; step++) { onBeforeAnimation.Invoke(); animator.Update(dt); onAfterAnimation.Invoke(dt); onStepUmaViewerSprings.Invoke(dt); }
-                double timeS = (warmupSteps + frame*simulationStepsPerSample) / (double)fps;
+                double timeS = EffectiveStartPhase + (warmupSteps + frame*simulationStepsPerSample) * (double)dt;
                 CaptureOneFrame(outDir, frame, timeS, ref haveRoot0, ref rfRoot0, ref srcRoot0);
             }
             Debug.Log(string.Format(CultureInfo.InvariantCulture, "RunFlowCapture: wrote {0} frames to {1}", frameCount, outDir));
@@ -340,7 +348,12 @@ namespace RunFlow
             sb.Append("\"trajectory_root\":").Append(JsonStr(FullPath(trajectoryRoot != null ? trajectoryRoot : root))).Append(',');
             sb.Append("\"clip\":").Append(JsonStr(clip != null ? clip.name : "")).Append(',');
             sb.Append("\"animator_state\":").Append(JsonStr(animatorStateName)).Append(',');
-            sb.Append("\"clip_length_s\":").Append(clip != null ? F(clip.length) : "0.000000").Append(',');
+            sb.Append("\"requested_start_phase_s\":").Append(Fd(startPhaseSeconds)).Append(',');
+            sb.Append("\"effective_start_phase_s\":").Append(Fd(EffectiveStartPhase)).Append(',');
+            sb.Append("\"simulation_dt_s\":").Append(Fd((double)simulationDt)).Append(',');
+            sb.Append("\"animator_normalized_time\":").Append(Fd((double)animator.GetCurrentAnimatorStateInfo(0).normalizedTime)).Append(',');
+            sb.Append("\"phase_initialization\":\"normalized phase at reset, then fixed-step warmup\",");
+            sb.Append("\"clip_length_s\":").Append(clip != null ? Fd((double)clip.length) : "0.000000").Append(',');
             sb.Append("\"frame\":").Append(frame.ToString(CultureInfo.InvariantCulture)).Append(',');
             sb.Append("\"time_s\":").Append(Fd(timeS)).Append(",\"fps\":").Append(F(fps)).Append(',');
             sb.Append("\"source_to_rf\":[");

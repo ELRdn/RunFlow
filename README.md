@@ -64,11 +64,23 @@ RunFlow は「面白い結果」を作ることではなく、**同一条件・�
 
 ## Status
 
-**Current stage:** Phase 0 — foundation, cylinder smoke and 16-frame direct capture/transport verified; canonical gait and intake review pending.
+**Current stage:** Phase 1.0 — the provisional single-pose CFD trial has converged. Raw-log verification and repeated input generation passed. Geometry fidelity and aerodynamic accuracy remain unvalidated; full-gait Phase 1 is incomplete. Phase 0 intake/reproduction remains verified.
+
+1姿勢試験の導入・上限・判定: [Phase 1 runbook](docs/PHASE1.md)。
+実装の検証範囲と引き渡し: [Phase 1 status](reports/phase1-status.md)。初回CFD試験の数値・形状・比較画像・結果は`private/phase1/`に保存する。
+全キャラ展開へ向けた形状差・部位・隙間の検査方法: [Shape audit](docs/SHAPE_AUDIT.md)。監査資料は`private/phase1-validation/`に保存する。
+全身入力の解像度比較と資源監視: [Full-body voxel comparison](docs/FULLBODY_VOXEL.md)。実形状・数値・比較資料は非公開の`E:\RunFlowPrivate\phase1-validation\fullbody-voxel-001\`と、中間幅0.9・0.8・0.7・0.6mmの`fullbody-voxel-002\`に保存し、公開出力へ含めない。
+
+形状修正では保存済み1mm・0.9mmの全身候補へ微小補正と細部復元を試した。0.8mm以下は再生成しない。[Full-body surface repair](docs/FULLBODY_REPAIR.md)。元の形状許容差は維持する。
+
+0.9mmを主軸に交差の発生工程と局所修正を試行枠内で検証し、二重生成・全身の精密比較を完了した。凹部・隙間は改善したが、形状の全条件合格は未達。[局所修正の計画](docs/LOCAL_REPAIR_PLAN.md) と [実装・結果・残件](docs/LOCAL_REPAIR_EXECUTION.md)。
+
+ユーザー指示により追加の形状精度探索を停止し、形状差を明記した [暫定CFD計測](docs/PROVISIONAL_CFD.md) を実施した。裾付近の空気側の格子を追加細分化した試行で、既定の残差・抵抗・流量収支の条件をすべて通過した。一次風上方式による数値精度と形状忠実度は未承認。結果・図・独立監査は非公開の `private/phase1/provisional-016/review/REVIEW.md` に保存した。次は結果をレビューし、感度検証と追加形状改善の優先順位を判断する。
 
 実装・再実行手順: [Phase 0 runbook](docs/PHASE0.md)。
 検証済み事項と残件: [Phase 0 status](reports/phase0-status.md)。
 走行候補の実測とPMX/VMD骨名不一致: [Motion discovery](reports/motion-discovery.md)。
 固定版Unityの二重出力とBlender形状比較: [Direct capture](reports/direct-capture.md)。
+採用済み接地位相・元尺度での実対象設定再生成: [Adopted capture](reports/adopted-capture.md)。
 JSON Schemaは `schemas/`、CLIは `src/runflow/`、Unity/Blenderアダプターは `integrations/`。
 アセットと派生形状は `private/`、専用ツールは `.tools/`（Git管理外）。

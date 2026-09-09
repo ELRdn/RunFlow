@@ -10,6 +10,21 @@ from .core import read, write, sample, generate, validate_manifest
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="runflow")
     sub = parser.add_subparsers(dest="command", required=True)
+    cfd = sub.add_parser('cfd').add_subparsers(dest='cfd_command', required=True)
+    prep = cfd.add_parser('prepare')
+    prep.add_argument('manifest',type=Path)
+    prep.add_argument('--asset-root',type=Path,required=True)
+    prep.add_argument('--protocol',type=Path,required=True)
+    prep.add_argument('--output',type=Path,required=True)
+    prep.add_argument('--frame',type=int,default=0)
+    prep.add_argument('--distro',default='Ubuntu')
+    pp=cfd.add_parser('prepare-provisional')
+    pp.add_argument('--receipt',type=Path,required=True)
+    pp.add_argument('--protocol',type=Path,required=True)
+    pp.add_argument('--output',type=Path,required=True)
+    pp.add_argument('--distro',default='Ubuntu')
+    for name in ('run','report'):
+        cfd.add_parser(name).add_argument('--output',type=Path,required=True)
     for name in ("validate", "sample", "generate"):
         p = sub.add_parser(name)
         p.add_argument("manifest", type=Path)
@@ -39,7 +54,18 @@ def main(argv=None):
     p.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command in {"validate", "sample", "generate"}:
+        if args.command == 'cfd':
+            from . import cfd
+            if args.cfd_command == 'prepare':
+                report=cfd.prepare(args.manifest,args.asset_root,args.protocol,args.output,args.frame,args.distro)
+            elif args.cfd_command == 'prepare-provisional':
+                from .cfd_provisional import prepare
+                report=prepare(args.receipt,args.protocol,args.output,args.distro)
+            elif args.cfd_command == 'run': report=cfd.run(args.output)
+            else: report=cfd.report(args.output)
+            print(report['execution_status'])
+            return 0 if report['execution_status'] in ('PASS','PREPARED') else 2
+        elif args.command in {"validate", "sample", "generate"}:
             manifest = validate_manifest(read(args.manifest), args.asset_root)
             if args.command == "sample":
                 write(args.output, sample(manifest))
@@ -73,6 +99,13 @@ def main(argv=None):
         elif args.command == "schemas":
             for kind, schema in SCHEMAS.items():
                 write(args.output / f"{kind}.schema.json", {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema})
+            from .cfd_contracts import PROTOCOL,RESULT,EXPERIMENT,PROVISIONAL_PROTOCOL,PROVISIONAL_RESULT,PROVISIONAL_EXPERIMENT
+            for kind,schema in dict(protocol=PROTOCOL,result=RESULT,experiment=EXPERIMENT,
+                **{'provisional-protocol':PROVISIONAL_PROTOCOL,'provisional-result':PROVISIONAL_RESULT,'provisional-experiment':PROVISIONAL_EXPERIMENT}).items():
+                write(args.output / f"cfd-{kind}.schema.json", {"$schema":"https://json-schema.org/draft/2020-12/schema",**schema})
+            from . import cfd_study_contracts as study
+            for kind,schema in dict(protocol=study.PROTOCOL,result=study.RESULT,experiment=study.EXPERIMENT).items():
+                write(args.output / f"cfd-study-{kind}.schema.json", {"$schema":"https://json-schema.org/draft/2020-12/schema",**schema})
         print("PASS")
         return 0
     except (ValueError, OSError, GEOSException) as error:

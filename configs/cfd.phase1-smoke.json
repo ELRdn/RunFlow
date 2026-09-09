@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "protocol_id": "RF-CFD-P1-SMOKE-001",
+  "solver": "OpenFOAM Foundation 14/incompressibleFluid",
+  "package_version": "20260724",
+  "frame": 0,
+  "reference_height_m": 1.67,
+  "inlet_direction": [-1, 0, 0],
+  "speed_m_s": 20,
+  "air_density_kg_m3": 1.2,
+  "kinematic_viscosity_m2_s": 0.000015,
+  "turbulence_model": "kOmegaSST",
+  "turbulence_intensity": 0.01,
+  "turbulence_length_height_ratio": 0.01,
+  "ground_condition": "none",
+  "geometry": {"weld_m": 0.000001, "voxel_m": 0.001, "max_distance_m": 0.002, "max_area_relative": 0.01, "max_cover_radius_m": 0.00025},
+  "domain": {"upstream_H": 5, "downstream_H": 15, "lateral_H": 5, "vertical_H": 5},
+  "mesh": {"background_H": 0.25, "surface_level": 5, "wake_level": 2, "layers": 3, "first_layer_fraction": 0.2, "layer_expansion": 1.2, "max_cells": 1000000},
+  "limits": {"geometry_s": 600, "mesh_s": 1200, "solver_s": 1500, "report_s": 300, "total_s": 3600, "processes": 4, "memory_bytes": 12884901888, "output_bytes": 10737418240},
+  "convergence": {"min_iterations": 300, "max_iterations": 2000, "window": 100, "pressure_residual": 0.0001, "other_residual": 0.00001, "mean_drag_relative": 0.01, "drag_range_relative": 0.02, "flux_relative": 0.001}
+}

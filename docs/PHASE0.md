@@ -26,6 +26,8 @@ APTへの専用ソース追加とパッケージ導入を行う。Unity 2022.3 E
 同じプロジェクトを別のUnityで開いたまま実行しない。新規環境の準備は [adapter手順](../integrations/README.md)。
 出力は `private/oguri/direct-<日時>/`。`completed.json`、`inputs-0/1.json`、`comparison.json` とログを残す。
 候補clipの診断なので、接地や実寸が未承認のまま正式manifestを埋めない。
+接地探索・立位寸法の測定には `run_direct_capture.ps1 -Measurements -RunName measurements-new` を使う。
+取得後の解析・測定図は [接地・実寸の手順と制約](../reports/contact-scale-measurement.md) を参照。
 
 ```powershell
 uv sync --frozen --python 3.12 --cache-dir .cache/uv
@@ -72,6 +74,29 @@ uv sync --frozen --python 3.12 --cache-dir .cache/uv
 スケール・頭頂/足底の定義は人間が確認する。
 
 ## 検証とデータ契約
+
+### 採用済みの右接地・元尺度で再取得する
+
+接地位相 `0.5894131075056082 s`、右足を周期起点、1 Unity world単位を1m、元のBodyScaleを維持する判断を受領済み。詳細な頭頂・足底の実寸測定はユーザー判断で省略した。初回レビューは衣装と脚の貫通を注記して受理し、16姿勢すべての個別目視確認とは区別する。
+
+```powershell
+& scripts/run_direct_capture.ps1 -RunName adopted-new -AdoptionDecision private/oguri/measurements-002/adoption-decision.json -PartsReview private/oguri/intake-review-001/human-multiview-review.json
+```
+
+新しいRunNameを使う。測定記録のハッシュ・対象ID・承認条件を検査し、採用位相から再生を初期化して5周期ウォームアップする。刻みはclipを256分割したfloat値、16ステップごとに16時刻を取得し、終点は含めない。実際にAnimator更新へ渡す刻み、正規化された内部時刻、指定位相とfloat変換後の位相を別々に保存する。
+
+スクリプトはUnity二重取得、Blender転送比較、49入力Bundleの非公開固定保存、実manifest生成、CLI `generate` 二重実行、設定SHA一致まで実行する。成果物は `private/oguri/<RunName>/configuration/` の `accepted-verification.json`・`manifest.json`・`experiment-a/b`。部位レビューは前回画像への承認を引き継ぎ、新しい全16姿勢を人間確認済みに書き換えない。
+
+既に取得・比較が成功した出力から設定生成だけ再開する場合:
+
+```powershell
+.venv/Scripts/python.exe scripts/accepted_capture.py finalize --root private/oguri/<RunName>
+.venv/Scripts/runflow.exe validate private/oguri/<RunName>/configuration/manifest.json --asset-root private/oguri/<RunName>
+```
+
+`configuration` が既存の場合は上書きせず停止する。処理コードを更新して設定生成をやり直す場合、`finalize --output private/oguri/<RunName>/configuration-new` で新しい保存先を指定する。独立した設定再生成はCLI `generate` に新しい出力先を指定する。
+
+最終検証済み入力は `private/oguri/adopted-002/configuration-final-002/manifest.json`。asset-rootは `private/oguri/adopted-002` とする。ゲームmeta/masterとDynamicBoneパッチのハッシュが採用時の固定値と異なる場合は停止し、古いビルド名を流用しない。処理ソースとツールのlockファイルも設定生成先に保存する。欠落スクリプトの扱いは [調査記録](../reports/missing-transform-script.md) を参照。
 
 生成設定はUTF-8 JSONのキー順・区切りを固定してSHA-256化する。
 ファイル絶対パス・実行日時をIDから除き、入力内容・ID・ツール版・変換・前処理・時刻・重みを含める。

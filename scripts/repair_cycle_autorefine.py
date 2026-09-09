@@ -63,7 +63,12 @@ def repair(source_root, output, grid, iterations, timeout):
         with log_path.open("wb") as log:
             process = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT,
                                      cwd=REPO, timeout=float(timeout), check=False)
-        if process.returncode != 0:
+        # CGAL returns 3 when the iterative snap-rounding operation reports
+        # that it could not certify the refined soup.  The output is still a
+        # useful diagnostic candidate, but it must remain explicitly
+        # non-admissible and continue through the independent Foundation
+        # check.  Only unexpected process failures discard the output.
+        if process.returncode not in (0, 3):
             raise ValueError("Pinned CGAL autorefine failed; inspect autorefine.log")
         refined_v, refined_f = binary_read(refined_mesh)
         _validate_arrays(refined_v, refined_f)
@@ -84,9 +89,10 @@ def repair(source_root, output, grid, iterations, timeout):
             "refined.rfmesh": file_hash(refined_mesh),
             "autorefine.log": file_hash(log_path),
         }
+        partial = process.returncode == 3
         record = dict(
             schema_version="phase1-cycle-autorefine-1",
-            status="PASS",
+            status="DIAGNOSTIC_PARTIAL" if partial else "PASS",
             method=METHOD,
             backend="CGAL 6.2.1 Polygon_mesh_processing::autorefine_triangle_soup",
             source_commit=SOURCE_COMMIT,
@@ -99,6 +105,8 @@ def repair(source_root, output, grid, iterations, timeout):
             input_exchange=input_exchange,
             output_cache=cache,
             native_binary_sha256=file_sha(binary),
+            process_returncode=int(process.returncode),
+            autorefine_certified=not partial,
             source_geometry_sha256=input_hashes["source_geometry.json"],
             may_change_external_surface=True,
             smoothing=False,
@@ -129,7 +137,10 @@ def repair(source_root, output, grid, iterations, timeout):
             human_review=None,
             scientific_status="UNVALIDATED_PHASE1_CYCLE",
         ))
-        print("CGAL_AUTOREFINE_SAVED", json.dumps(record["output_counts"]), flush=True)
+        print("CGAL_AUTOREFINE_SAVED", json.dumps({
+            "status": record["status"],
+            "counts": record["output_counts"],
+        }), flush=True)
         return record
     except BaseException as exc:
         write(output / "repair-failure.json", dict(

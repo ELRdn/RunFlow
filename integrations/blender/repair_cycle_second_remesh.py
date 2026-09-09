@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO / "integrations/blender"))
 from fullbody_voxel_compare import mesh_from_arrays
 
 
-METHOD = "blender_second_voxel_remesh_same_0.9mm_v1"
+METHOD = "blender_second_voxel_remesh_parameterized_v1"
 
 
 def sha(path):
@@ -74,6 +74,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--voxel-m", type=float, default=0.0009)
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     if bpy.app.version != (4, 2, 23):
         raise ValueError("Pinned Blender 4.2.23 is required")
@@ -81,6 +82,8 @@ def main():
     output = args.output.resolve()
     if output.exists():
         raise ValueError("Fresh second-remesh output required")
+    if not np.isfinite(args.voxel_m) or not 0.0009 <= args.voxel_m <= 0.001:
+        raise ValueError("Voxel size must be one of the approved 0.9mm..1mm candidates")
     native_record = json.loads((source / "geometry.json").read_text(encoding="utf-8-sig"))
     if native_record.get("unit") != "m" or native_record.get("coordinate_system") != "RF_X_FORWARD_Z_UP":
         raise ValueError("Native cycle geometry must use metres and RF coordinates")
@@ -100,10 +103,10 @@ def main():
         bpy.context.collection.objects.link(ob)
         bpy.context.view_layer.objects.active = ob
         ob.select_set(True)
-        data.remesh_voxel_size = 0.0009
+        data.remesh_voxel_size = args.voxel_m
         data.remesh_voxel_adaptivity = 0
         data.use_remesh_preserve_volume = False
-        print("CYCLE_SECOND_REMESH_BEGIN", 0.0009, len(vertices), len(triangles), flush=True)
+        print("CYCLE_SECOND_REMESH_BEGIN", args.voxel_m, len(vertices), len(triangles), flush=True)
         bpy.ops.object.voxel_remesh()
         recalculate_normals(ob.data)
         print("CYCLE_SECOND_REMESH_GENERATED", len(ob.data.vertices), len(ob.data.polygons), flush=True)
@@ -119,7 +122,7 @@ def main():
             schema_version="phase1-cycle-second-remesh-1",
             status="PASS",
             method=METHOD,
-            voxel_m=0.0009,
+            voxel_m=float(args.voxel_m),
             passes=1,
             adaptivity=0,
             preserve_volume=False,
@@ -146,7 +149,7 @@ def main():
             "repair_method": METHOD,
             "source_sha256": native_record.get("source_sha256"),
             "native_geometry_sha256": sha(source / "geometry.json"),
-            "voxel_m": 0.0009,
+            "voxel_m": float(args.voxel_m),
             "whole_input": True,
             "coordinate_system": native_record["coordinate_system"],
             "unit": native_record["unit"],

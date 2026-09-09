@@ -193,6 +193,69 @@ def _done(ledger):
     return {int(row["phase_index"]) for row in ledger.get("attempts", []) + ledger.get("skipped", [])}
 
 
+def _pid_is_running(pid):
+    """Return whether a process still owns the interrupted campaign marker."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        # The process exists but this user cannot query it.  Fail closed.
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+    return True
+
+
+def _recover_interrupted(output, ledger):
+    """Archive a stopped frame and its marker before a deliberate rerun.
+
+    Recovery is explicit so a live campaign can never be silently duplicated.
+    The incomplete frame directory is renamed in place and remains available
+    for forensic inspection; the next attempt may then recreate the canonical
+    frame directory without overwriting the partial evidence.
+    """
+    active = output / "active.json"
+    marker = read(active)
+    try:
+        frame = int(marker["phase_index"])
+        pid = int(marker["pid"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Malformed interrupted campaign marker") from exc
+    if frame not in range(FRAME_COUNT):
+        raise ValueError("Interrupted campaign marker has an invalid frame")
+    if _pid_is_running(pid):
+        raise RuntimeError("Cannot recover while campaign PID is still running: " + str(pid))
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    frame_root = output / f"frame-{frame:02d}-001"
+    archived_frame = output / f"frame-{frame:02d}-001.interrupted-{stamp}"
+    archived_active = output / f"active.interrupted-{stamp}.json"
+    if archived_frame.exists() or archived_active.exists():
+        raise FileExistsError("Recovery archive target already exists")
+    if frame_root.exists():
+        frame_root.replace(archived_frame)
+    active.replace(archived_active)
+
+    recovery = dict(
+        phase_index=frame,
+        marker_pid=pid,
+        marker_started_utc=marker.get("started_utc"),
+        archived_frame=str(archived_frame) if archived_frame.exists() else None,
+        archived_active=str(archived_active),
+        recovered_utc=_now(),
+    )
+    ledger.setdefault("recoveries", []).append(recovery)
+    ledger["completion_status"] = "RESUMING"
+    ledger["recovered_interrupted_frame"] = frame
+    write(output / "campaign.json", ledger)
+    return recovery
+
+
 def _run_repair(native_root, repair_root, frame, remaining):
     output = repair_root / f"frame-{frame:02d}-001"
     if output.exists():
@@ -259,7 +322,8 @@ def _run_audit(native_root, candidate, audit_root, frame, remaining):
     return audit_root
 
 
-def run(request, *, output_root, native_root, mapping_path=None, selected=None):
+def run(request, *, output_root, native_root, mapping_path=None, selected=None,
+        recover_interrupted=False):
     verified, authority, prior = validate_request(request)
     output = _portable_private(output_root)
     native_root = _portable_private(native_root)
@@ -291,7 +355,9 @@ def run(request, *, output_root, native_root, mapping_path=None, selected=None):
     ledger = _load_or_create(output, run_request, mapping, verified, authority, prior)
     active = output / "active.json"
     if active.exists():
-        raise ValueError("Repaired cycle has an active/interrupted frame; inspect before continuing")
+        if not recover_interrupted:
+            raise ValueError("Repaired cycle has an active/interrupted frame; inspect before continuing")
+        _recover_interrupted(output, ledger)
     write(output / "campaign.json", ledger)
     requested = list(range(FRAME_COUNT)) if selected is None else [int(item) for item in selected]
     if any(item not in range(FRAME_COUNT) for item in requested) or len(set(requested)) != len(requested):
@@ -419,10 +485,14 @@ def main():
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--mapping", type=Path)
     parser.add_argument("--frame", type=int, action="append")
+    parser.add_argument(
+        "--recover-interrupted", action="store_true",
+        help="archive a stopped frame after its marker PID is confirmed dead, then resume",
+    )
     args = parser.parse_args()
     ledger, failures = run(read(args.request), output_root=args.output_root,
                            native_root=args.native_root, mapping_path=args.mapping,
-                           selected=args.frame)
+                           selected=args.frame, recover_interrupted=args.recover_interrupted)
     return 0 if not failures and ledger.get("completion_status") == "COMPLETE_REQUESTED_FRAMES" else 2
 
 

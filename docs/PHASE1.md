@@ -21,6 +21,19 @@ uv sync --locked
 .venv/Scripts/runflow.exe cfd report --output private/phase1/smoke-new
 ```
 
+32フレームの継続計算は、非公開Eドライブの台帳を使う。再起動などで`active.json`が残った場合は、関連PIDが終了していることを確認したうえで、途中ディレクトリを削除せず退避して再開する。
+
+```powershell
+& .venv/Scripts/python.exe scripts/run_phase1_full_cycle.py `
+  --request private/phase1-inputs/cycle-002/request.json `
+  --native-root E:/RunFlowPrivate/phase1/cycle-native-discovery-001 `
+  --output-root E:/RunFlowPrivate/phase1/cycle-phase1-full-001 `
+  --mapping private/phase1-inputs/cycle-002/repaired-mapping-001.json `
+  --recover-interrupted
+```
+
+`--recover-interrupted`は明示指定時だけ有効で、実行中PIDを検出した場合は停止する。退避された`frame-XX-001.interrupted-*`と`active.interrupted-*`は監査用に保持する。各フレームの成功は実行ゲートの通過を意味し、科学的承認やランキング適格性は付与しない。
+
 合計60分はprepare開始からの経過時間で管理する。個別コマンド間で待った時間も含む。geometry600秒、mesh1200秒、solver1500秒、report300秒を上限とし、MPI4プロセス、12GiB、出力10GiBを監視する。実装・合成テストは実オグリ試験の予算へ含めない。
 
 ## 形状と数値条件

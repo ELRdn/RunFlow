@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 SPEC = importlib.util.spec_from_file_location(
     "run_phase1_full_cycle",
@@ -40,3 +42,39 @@ def test_done_includes_skipped_frames():
         "skipped": [{"phase_index": 4}],
     }
     assert MODULE._done(ledger) == {1, 4}
+
+
+def test_recover_interrupted_archives_partial_frame_and_marker(tmp_path, monkeypatch):
+    output = tmp_path / "campaign"
+    output.mkdir()
+    frame_root = output / "frame-01-001"
+    frame_root.mkdir()
+    (frame_root / "partial.obj").write_text("partial", encoding="utf-8")
+    MODULE.write(output / "active.json", {
+        "phase_index": 1, "pid": 987654321, "started_utc": "2026-09-09T00:00:00+00:00",
+    })
+    ledger = {"completion_status": "PAUSED", "recoveries": []}
+    monkeypatch.setattr(MODULE, "_pid_is_running", lambda pid: False)
+
+    recovery = MODULE._recover_interrupted(output, ledger)
+
+    assert not (output / "active.json").exists()
+    assert not frame_root.exists()
+    archived = Path(recovery["archived_frame"])
+    assert archived.is_dir()
+    assert (archived / "partial.obj").read_text(encoding="utf-8") == "partial"
+    assert Path(recovery["archived_active"]).is_file()
+    assert ledger["completion_status"] == "RESUMING"
+    assert ledger["recovered_interrupted_frame"] == 1
+
+
+def test_recover_interrupted_refuses_live_marker(tmp_path, monkeypatch):
+    output = tmp_path / "campaign"
+    output.mkdir()
+    MODULE.write(output / "active.json", {"phase_index": 1, "pid": 123, "started_utc": "now"})
+    monkeypatch.setattr(MODULE, "_pid_is_running", lambda pid: True)
+
+    with pytest.raises(RuntimeError, match="still running"):
+        MODULE._recover_interrupted(output, {"completion_status": "PAUSED"})
+
+    assert (output / "active.json").is_file()

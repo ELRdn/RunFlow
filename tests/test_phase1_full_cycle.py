@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,15 @@ def test_remaining_budget_does_not_double_count_completed_stage_elapsed():
     assert MODULE._remaining(request, ledger) == 82200
 
 
+def _valid_projections():
+    """A structurally valid canonical projection audit document."""
+    planes = {"front": (1, 2), "side": (0, 2), "top": (0, 1)}
+    return {"complete": True, "views": {
+        name: {"source_m2": 1.0, "candidate_m2": 1.001, "relative_change_abs": 0.001,
+               "iou": 0.999, "axes": list(axes)}
+        for name, axes in planes.items()}}
+
+
 def test_audit_complete_requires_all_finished_artifacts(tmp_path):
     names = [
         "request.json", "source-to-candidate.json", "candidate-to-source.json",
@@ -33,6 +43,11 @@ def test_audit_complete_requires_all_finished_artifacts(tmp_path):
 
     for name in names[1:]:
         (tmp_path / name).write_text('{"complete": true}', encoding="utf-8")
+    # Every artifact is marked complete, but the projection document does not
+    # satisfy the projection contract yet.
+    assert MODULE._audit_complete(tmp_path) is False
+
+    (tmp_path / "projections.json").write_text(json.dumps(_valid_projections()), encoding="utf-8")
     assert MODULE._audit_complete(tmp_path) is True
 
 

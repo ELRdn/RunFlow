@@ -19,6 +19,7 @@ import sys
 import time
 
 from . import cfd
+from .audit_contract import load_authoritative_projections
 from .cfd_guard import directory_bytes
 from .core import digest, file_hash, read, write
 from .cfd_metrics import assess, coefficients, read_forces, read_residuals
@@ -29,7 +30,7 @@ REPO = Path(__file__).resolve().parents[2]
 BLENDER = cfd.BLENDER
 CYCLE_VERSION = "phase1-cycle-1"
 CYCLE_PROTOCOL_ID = "RF-CFD-P1-CYCLE-001"
-CYCLE_FAMILY_VERSION = "phase1-cycle-family-1"
+CYCLE_FAMILY_VERSION = "phase1-cycle-family-2"
 VOXEL_M = 0.0009
 FRAME_COUNT = 32
 FIXED_PARTS = set(PARTS)
@@ -138,14 +139,59 @@ def validate_cycle_manifest(manifest_path, source_root=None):
                 manifest_sha256=file_hash(manifest_path), frames=resolved)
 
 
+EXECUTION_LIMIT_KEYS = ("processes", "memory_bytes", "output_bytes",
+                        "geometry_s", "mesh_s", "solver_s", "report_s", "total_s")
+
+
 def cycle_family(protocol):
-    """Hash only common physics/numerics, excluding frame and source identity."""
+    """Hash only values that can change the scientific result.
+
+    Execution-resource settings (process count, memory/output budget, and stage
+    or total time limits) are provenance, not physics.  They are recorded in
+    execution-profile.json and deliberately excluded here, so the same physics
+    at a different rank count stays in one numerical family.  Changing any
+    physics, geometry, mesh, turbulence, or convergence input still changes it.
+
+    Per-frame repair provenance (which local repair route produced this frame's
+    surface, and its weld radius) is excluded for the same reason the candidate
+    hash is: EXPERIMENT_PROTOCOL section 3 logs per-frame topology repairs but
+    does not make them a comparison condition, and every frame's surface has
+    already passed the identical Foundation surface check and the identical
+    2 mm / 1% shape audit.  The geometry pipeline fields that remain - the
+    voxel size, weld tolerance, degenerate-face threshold, remesh pass count,
+    normal policy, mode, and fidelity gate - still separate families.
+    """
     value = deepcopy(protocol)
     value["frame"] = None
     value.pop("cycle", None)
+    value.pop("limits", None)
+    geometry = value.get("geometry")
+    if isinstance(geometry, dict):
+        geometry.pop("repair_method", None)
+        geometry.pop("repair_max_weld_m", None)
     if isinstance(value.get("diagnostic_refinement"), dict):
         value["diagnostic_refinement"]["source_snapshot_sha256"] = None
     return digest(dict(schema_version=CYCLE_FAMILY_VERSION, protocol=value))
+
+
+def apply_execution(protocol, execution):
+    """Return a protocol with execution-only limits overridden.
+
+    Only resource and time limits may change.  Any other key is rejected, so a
+    resource experiment can never alter the numerical contract.
+    """
+    if not isinstance(execution, dict) or not execution:
+        raise ValueError("Execution overrides must be a non-empty mapping")
+    value = deepcopy(protocol)
+    limits = dict(value["limits"])
+    for key, item in execution.items():
+        if key not in EXECUTION_LIMIT_KEYS:
+            raise ValueError("Execution override is not an execution-only field: " + str(key))
+        if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+            raise ValueError("Execution override must be a positive integer: " + str(key))
+        limits[key] = item
+    value["limits"] = limits
+    return value
 
 
 def build_protocol(frame, source_sha256, frame_time_s, request, surface_override=None):
@@ -395,10 +441,11 @@ def _surface_override_info(surface_override, shape_audit_root=None, expected_sou
     audit_hashes = {}
     if shape_audit_root is not None:
         audit_root = cfd.private(shape_audit_root)
-        for name in (
+        authorization_files = (
             "request.json", "source-to-candidate.json", "candidate-to-source.json",
-            "projections.json", "views.json", "sections.json",
-        ):
+            "views.json", "sections.json",
+        )
+        for name in authorization_files:
             path = audit_root / name
             if not path.is_file():
                 raise ValueError("Shape audit evidence is missing: " + name)
@@ -419,12 +466,13 @@ def _surface_override_info(surface_override, shape_audit_root=None, expected_sou
             if value.get("complete") is not True or float(value.get("global_max_upper_m", float("inf"))) > 0.002:
                 raise ValueError("Shape audit distance gate did not pass: " + name)
             distance_rows.append(value)
-        projections = read(audit_root / "projections.json")
+        projections, projection_source = load_authoritative_projections(audit_root)
+        if projection_source not in audit_hashes:
+            audit_hashes[projection_source] = file_hash(audit_root / projection_source)
         views = read(audit_root / "views.json")
         sections = read(audit_root / "sections.json")
-        if projections.get("complete") is not True or any(
-                float(value.get("relative_change_abs", float("inf"))) > 0.01
-                for value in projections.get("views", {}).values()):
+        if any(float(value.get("relative_change_abs", float("inf"))) > 0.01
+               for value in projections.get("views", {}).values()):
             raise ValueError("Shape audit projection gate did not pass")
         if views.get("complete") is not True or sections.get("complete") is not True:
             raise ValueError("Shape audit visual/section stages are incomplete")
@@ -444,7 +492,8 @@ def _surface_override_info(surface_override, shape_audit_root=None, expected_sou
     return info, dict(geometry=geometry, repair=repair, candidate=candidate)
 
 
-def prepare_frame(request, frame_record, campaign_root, *, distro="Ubuntu", surface_override=None, shape_audit_root=None):
+def prepare_frame(request, frame_record, campaign_root, *, distro="Ubuntu", surface_override=None,
+                  shape_audit_root=None, execution=None):
     """Prepare one fresh frame and stop before the solver."""
     campaign_root = cfd.private(campaign_root)
     frame = int(frame_record["index"])
@@ -459,9 +508,19 @@ def prepare_frame(request, frame_record, campaign_root, *, distro="Ubuntu", surf
         surface_override, shape_audit_root, expected_source_sha256=frame_record["sha256"]
     )
     protocol = build_protocol(frame, frame_record["sha256"], frame_record["time_s"], request, override)
+    if execution is not None:
+        protocol = apply_execution(protocol, execution)
     started_epoch = time.time()
     root.mkdir(parents=True, exist_ok=False)
     write(root / "protocol.json", protocol)
+    write(root / "execution-profile.json", dict(
+        schema_version="phase1-execution-profile-1",
+        source=("explicit_override" if execution is not None else "protocol_default"),
+        limits=dict(protocol["limits"]),
+        requested=(dict(execution) if execution is not None else None),
+        scientific_identity_excludes="limits",
+        family_sha256=protocol.get("cycle", {}).get("comparison_family_sha256"),
+    ))
     write(root / "state.json", dict(started_epoch=started_epoch,
                                      started_utc=datetime.fromtimestamp(started_epoch, timezone.utc).isoformat(),
                                      status="PREPARING", stage="geometry", distro=distro, phase_index=frame))
@@ -654,10 +713,12 @@ def run_frame(root, *, distro=None):
         return _write_result(root, _status_for_reason(reason), "report", reason, evidence)
 
 
-def execute_frame(request, frame_record, campaign_root, *, distro="Ubuntu", surface_override=None, shape_audit_root=None):
+def execute_frame(request, frame_record, campaign_root, *, distro="Ubuntu", surface_override=None,
+                  shape_audit_root=None, execution=None):
     """Prepare and, only when prepared, execute one frame exactly once."""
     prepared = prepare_frame(request, frame_record, campaign_root, distro=distro,
-                             surface_override=surface_override, shape_audit_root=shape_audit_root)
+                             surface_override=surface_override, shape_audit_root=shape_audit_root,
+                             execution=execution)
     root = Path(campaign_root).resolve() / f"frame-{int(frame_record['index']):02d}-001"
     if prepared["execution_status"] != "PREPARED":
         return prepared

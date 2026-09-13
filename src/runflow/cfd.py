@@ -73,18 +73,28 @@ def guarded(root,command,log,timeout,input_bytes=None):
     return run
 
 
-def worker(root,stage,timeout,distro):
+def _linux_path(path,distro):
+    """WSL path for a Windows path; an already-POSIX path passes through."""
+    text=str(path)
+    if text.startswith('/'):
+        return text
+    return subprocess.check_output(['wsl','-d',distro,'--','wslpath','-a',Path(path).as_posix()],text=True,timeout=20).strip()
+
+
+def worker(root,stage,timeout,distro,case_root=None):
     if timeout<=0: raise ValueError('stage timeout')
     deadline=time.monotonic()+timeout
     script=REPO/'scripts/cfd_worker.py'
     if os.name=='nt':
         def linux(path):
-            return subprocess.check_output(['wsl','-d',distro,'--','wslpath','-a',path.as_posix()],text=True,timeout=20).strip()
+            return _linux_path(path,distro)
         command=['wsl','-d',distro,'--','bash','-s','--',
                  linux(script),'--root',linux(root),'--stage',stage,'--timeout','0']
     else:
         command=['bash','-s','--',str(script),
                  '--root',str(root),'--stage',stage,'--timeout','0']
+    if case_root is not None:
+        command.extend(['--case-root', _linux_path(case_root,distro) if os.name=='nt' else str(case_root)])
     budget=deadline-time.monotonic()-10  # include WSL path conversion and termination grace
     if budget<=0: raise ValueError('stage timeout during WSL startup')
     command[-1]=str(budget)

@@ -109,3 +109,32 @@ VTKはFoundation14標準のバイナリ形式で、内部セルのp/Uを4並列�
 今回の実行費用と失敗理由を基に、3段階のメッシュ感度、領域感度、8/16/32時刻の感度へ進む。全周期CFDは今回の実行に含めない。手足の動きを含む非定常計算はPhase 1.5。
 
 欠落`Gallop.CharaTransformProcessData`のゲーム側の役割は未確認。衣装の自己交差や公式の合成条件との一致を、CFD実行成功だけで認定しない。
+
+## Phase A の高速化基盤（2026-09-13）
+
+Phase A は科学的プロトコルと許容差を変えずに、監査コスト・直列実行・I/O を
+削るための基盤を追加した。数値契約を変える場合は実測 A/B と版上げを必須とする。
+
+- 投影監査の精度グリッドは既定で 10nm 以下を強制したまま。明示的な
+  --benchmark 指定時のみ粗いグリッドを許し、出力に benchmark を記録する。
+- source 投影の決定的キャッシュ（source のみ。候補は毎回再計算）。
+  --no-projection-cache で無効化でき、キャッシュ有無で比較結果が一致する。
+- --view による 3 面の同時実行。正規の projections.json は全面成功後にのみ
+  決定的順序で統合する。1 面でも失敗すれば incomplete のままとする。
+- 権威成果物は「3面すべてを含み complete の projections.json」。既存の分割
+  成果物はハッシュ検証を通った場合のみ後方互換で受理する。
+  scripts/promote_projection_audit.py が再計算なしで正規形へ昇格する。
+- cycle_family() は科学値のみをハッシュする。limits（プロセス数・メモリ・
+  出力・各時間上限）は execution-profile.json へ分離し、家族判定に含めない。
+  家族の版は phase1-cycle-family-2。
+- スクラッチは D: の NVMe に 2 スロット（Windows 側 NTFS と Linux 側 ext4）。
+  E: は権威アーカイブとして維持し、正規成果物のみチェックサム付きで書き戻す。
+- フレーム並列ランナーはワーカーごとに隔離ルートと単一ライター台帳を持ち、
+  親は共有台帳を書かない。集約は家族不一致を拒否する。
+
+計測手順と結果は [Phase A ベースライン](../reports/phase-a/phase-a-baseline.md)、
+[投影 A/B](../reports/phase-a/projection-grid-ab.md)、
+[frame-03 契約](../reports/phase-a/frame03-contract.md)、
+[資源と家族](../reports/phase-a/resource-family.md)、
+[並列ランナー](../reports/phase-a/parallel-runner.md)、
+[スクラッチ](../reports/phase-a/scratch-io.md) を参照。

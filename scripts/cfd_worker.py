@@ -86,9 +86,9 @@ def flux_history(case):
     return [dict(iteration=t,inflow=tables[0][t],outflow=tables[1][t]) for t in sorted(tables[0].keys() & tables[1].keys())]
 
 
-def evaluation(root):
+def evaluation(root,case=None):
     from runflow.cfd_metrics import read_forces,read_residuals,assess
-    case=root/'case'; files=list((case/'postProcessing'/'forces').rglob('forces.dat'))
+    case=case or root/'case'; files=list((case/'postProcessing'/'forces').rglob('forces.dat'))
     if len(files)!=1: return dict(converged=False,reasons=['force history missing/ambiguous'])
     try:
         return assess(read_forces(files[0]),read_residuals(root/'foamRun.log'),flux_history(case))
@@ -96,10 +96,11 @@ def evaluation(root):
         return dict(converged=False,reasons=['incomplete live trace'])
 
 
-def command(args,root,deadline,limits,log,monitor=False,cwd=None,extra_roots=()):
+def command(args,root,deadline,limits,log,monitor=False,cwd=None,extra_roots=(),case=None):
     start=time.monotonic(); peak=0; peak_disk=0; reason=None; stop_requested=False; known={}
+    case=case or root/'case'
     with (root/log).open('wb') as output:
-        process=subprocess.Popen(args,cwd=cwd or root/'case',stdout=output,stderr=subprocess.STDOUT,start_new_session=True)
+        process=subprocess.Popen(args,cwd=cwd or case,stdout=output,stderr=subprocess.STDOUT,start_new_session=True)
         save(root/'worker-process.json',dict(pid=process.pid,pgid=process.pid,command=args))
         try:
             while process.poll() is None:
@@ -115,8 +116,8 @@ def command(args,root,deadline,limits,log,monitor=False,cwd=None,extra_roots=())
                     reason=reserve_reason(root)
                 if reason:
                     kill_group(process,known); break
-                if monitor and not stop_requested and evaluation(root)['converged']:
-                    control=root/'case/system/controlDict'
+                if monitor and not stop_requested and evaluation(root,case)['converged']:
+                    control=case/'system/controlDict'
                     text=control.read_text()
                     if text.count('stopAt endTime;')!=1:
                         reason='Unexpected runtime stop control'; kill_group(process,known); break
@@ -244,11 +245,19 @@ def solver_stage_commands(protocol, mpi):
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--root',type=Path,required=True)
     p.add_argument('--stage',choices=['reference','surface','mesh','solver','fields'],required=True)
+    p.add_argument('--case-root',type=Path,
+        help='Linux-native location for the high-churn case tree (defaults to <root>/case)')
     p.add_argument('--timeout',type=float,required=True); args=p.parse_args()
     root=args.root.resolve()
     from runflow.cfd_paths import is_private
     if not is_private(root) and not root.is_relative_to(REPO/'.cache'):
         raise ValueError('Private generated case required')
+    if args.case_root is not None:
+        case=args.case_root if str(args.case_root).startswith('/') else args.case_root.resolve()
+        if not is_private(case) and not Path(str(case)).is_relative_to(REPO/'.cache'):
+            raise ValueError('Private case root required')
+    else:
+        case=root/'case'
     protocol=json.loads((root/'protocol.json').read_text()); limits=protocol['limits']
     # CPU-only CFD: do not contact a stale WSL X server during hwloc GL discovery.
     # This affects this worker and its descendants only, not WSL/global settings.
@@ -256,7 +265,7 @@ def main():
     package=subprocess.check_output(['dpkg-query','-W','-f=${Version}','openfoam14'],text=True).strip()
     if package!='20260724' or os.environ.get('WM_PROJECT_VERSION')!='14': raise ValueError('Solver pin mismatch')
     deadline=time.monotonic()+args.timeout; records=[]; error=None
-    (root/'case').mkdir(exist_ok=True)
+    case.mkdir(parents=True,exist_ok=True)
     try:
         if args.stage=='reference': reference(root)
         else:
@@ -279,7 +288,7 @@ def main():
                 verify(root)
                 stages['mesh']=[(mpi+['checkMesh','-parallel'],'checkMesh.log')]
             for cmd,log in stages[args.stage]:
-                item=surface_command(root,deadline,limits) if args.stage=='surface' else command(cmd,root,deadline,limits,log,monitor=args.stage=='solver')
+                item=surface_command(root,deadline,limits) if args.stage=='surface' else command(cmd,root,deadline,limits,log,monitor=args.stage=='solver',case=case,extra_roots=(Path(case),))
                 records.append(item)
                 if item['reason'] or item['returncode']!=0: raise ValueError(item['reason'] or 'command failed: '+log)
             if args.stage=='surface':
@@ -288,7 +297,7 @@ def main():
                     raise ValueError('Surface closure/self-intersection success not confirmed')
             if args.stage=='mesh':
                 text=(root/'checkMesh.log').read_text()
-                evidence=mesh_evidence(root/'case',protocol['mesh']['surface_level'])
+                evidence=mesh_evidence(case,protocol['mesh']['surface_level'])
                 evidence.update(region_refinement_evidence((root/'snappyHexMesh.log').read_text(),protocol))
                 save(root/'mesh-evidence.json',evidence)
                 if 'Mesh OK' not in text or re.search(r'Failed \d+ mesh checks',text): raise ValueError('Mesh quality failed')
@@ -296,7 +305,7 @@ def main():
                     raise ValueError('Mesh refinement/cell gate failed')
     except Exception as exc: error=str(exc)
     if args.stage=='solver':
-        try: save(root/'flux-history.json',flux_history(root/'case'))
+        try: save(root/'flux-history.json',flux_history(case))
         except (OSError,ValueError) as exc:
             error=error or str(exc)
         if not error and (root/'restart.json').exists():

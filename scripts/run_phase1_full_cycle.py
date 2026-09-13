@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "scripts"))
 
 from runflow import cfd
+from runflow.audit_contract import load_authoritative_projections
 from runflow.cfd_cycle import FRAME_COUNT, _surface_override_info, execute_frame
 from runflow.cfd_paths import reserve_reason
 from runflow.core import digest, file_hash, read, write
@@ -300,11 +301,16 @@ def _audit_command(audit_root, stage, timeout):
 
 def _audit_complete(root):
     required = ["request.json", "source-to-candidate.json", "candidate-to-source.json",
-                "projections.json", "views.json", "sections.json"]
+                "views.json", "sections.json"]
     if any(not (root / name).is_file() for name in required):
         return False
-    return all(read(root / name).get("complete") is True
-               for name in required[1:])
+    if not all(read(root / name).get("complete") is True for name in required[1:]):
+        return False
+    try:
+        load_authoritative_projections(root)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def _run_audit(native_root, candidate, audit_root, frame, remaining):
@@ -324,7 +330,11 @@ def _run_audit(native_root, candidate, audit_root, frame, remaining):
         if stage == "distance":
             complete = (audit_root / "source-to-candidate.json").is_file() and (audit_root / "candidate-to-source.json").is_file()
         elif stage == "projection":
-            complete = (audit_root / "projections.json").is_file() and read(audit_root / "projections.json").get("complete") is True
+            try:
+                load_authoritative_projections(audit_root)
+                complete = True
+            except (OSError, ValueError):
+                complete = False
         else:
             complete = (audit_root / (stage + ".json")).is_file() and read(audit_root / (stage + ".json")).get("complete") is True
         if complete:

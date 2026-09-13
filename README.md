@@ -64,7 +64,7 @@ RunFlow は「面白い結果」を作ることではなく、**同一条件・�
 
 ## Status
 
-**Current stage:** Phase 1.0 — the provisional single-pose CFD trial has converged. Raw-log verification and repeated input generation passed. Geometry fidelity and aerodynamic accuracy remain unvalidated; full-gait Phase 1 is incomplete. Phase 0 intake/reproduction remains verified.
+**Current stage:** Phase 1 checkpoint — Phase 0 intake remains verified, and the 32-pose Phase 1 capture is reproducible. In the full-gait lane, frames 0–2 completed CFD and frame 3 passed the repair and geometry audit, but frame 3 has not entered CFD because the resumed top-view projection is not yet represented by the canonical audit contract. Geometry fidelity, mesh and sampling sensitivity, and aerodynamic accuracy remain unvalidated; the results are not ranking eligible.
 
 1姿勢試験の導入・上限・判定: [Phase 1 runbook](docs/PHASE1.md)。
 実装の検証範囲と引き渡し: [Phase 1 status](reports/phase1-status.md)。初回CFD試験の数値・形状・比較画像・結果は`private/phase1/`に保存する。
@@ -76,6 +76,8 @@ RunFlow は「面白い結果」を作ることではなく、**同一条件・�
 0.9mmを主軸に交差の発生工程と局所修正を試行枠内で検証し、二重生成・全身の精密比較を完了した。凹部・隙間は改善したが、形状の全条件合格は未達。[局所修正の計画](docs/LOCAL_REPAIR_PLAN.md) と [実装・結果・残件](docs/LOCAL_REPAIR_EXECUTION.md)。
 
 ユーザー指示により追加の形状精度探索を停止し、形状差を明記した [暫定CFD計測](docs/PROVISIONAL_CFD.md) を実施した。裾付近の空気側の格子を追加細分化した試行で、既定の残差・抵抗・流量収支の条件をすべて通過した。一次風上方式による数値精度と形状忠実度は未承認。結果・図・独立監査は非公開の `private/phase1/provisional-016/review/REVIEW.md` に保存した。次は結果をレビューし、感度検証と追加形状改善の優先順位を判断する。
+
+32姿勢の途中経過は [Phase 1 status](reports/phase1-status.md#32姿勢の途中経過2026-09-13) に記録した。長時間計算は一時停止しており、旧キャンペーン台帳と失敗記録を変更せず、新しい時間上限とキャンペーン領域を決めてから再開する。
 
 実装・再実行手順: [Phase 0 runbook](docs/PHASE0.md)。
 検証済み事項と残件: [Phase 0 status](reports/phase0-status.md)。

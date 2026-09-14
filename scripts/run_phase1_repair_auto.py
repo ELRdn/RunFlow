@@ -50,6 +50,24 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _archive_usable(path):
+    """Return whether a diagnostics archive is present and fully readable.
+
+    A probe that is interrupted leaves a truncated tar.  The file exists but its
+    member list cannot be read, so it must not be selected as the record of a
+    completed probe.
+    """
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size <= 0:
+        return False
+    try:
+        with tarfile.open(path, mode="r:*") as archive:
+            archive.getmembers()
+    except (tarfile.TarError, OSError, EOFError, ValueError):
+        return False
+    return True
+
+
 def _unique_root(path):
     """Return a path that does not exist yet, so a probe root is never reused."""
     path = Path(path)
@@ -177,7 +195,7 @@ def _probe_fresh(output, candidate_obj, base_name, remaining, probe_timeout_s, d
         root = _unique_root(output / base_name)
         passed, check = _probe(candidate_obj, root, output, remaining, probe_timeout_s,
                                distro, records, label + ("-a%d" % attempt))
-        if (root / "surface-diagnostics.tar").is_file():
+        if _archive_usable(root / "surface-diagnostics.tar"):
             return root, passed, check
         records.append(dict(stage="probe_retry", label=label, attempt=attempt, root=str(root),
                             reason="Foundation diagnostics archive missing"))
@@ -333,7 +351,7 @@ def run(native_root, output_root, *, distro="Ubuntu", budget_s=7200.0, max_round
                 raise ValueError("Resumed repair is missing the fan output for round " + str(serial))
             current = fans[-1]
             probes = sorted((item for item in output.glob(f"foundation-{serial:03d}*")
-                             if (item / "surface-diagnostics.tar").is_file()
+                             if _archive_usable(item / "surface-diagnostics.tar")
                              and (item / "surface-worker.json").is_file()),
                             key=lambda item: item.name)
             if probes:

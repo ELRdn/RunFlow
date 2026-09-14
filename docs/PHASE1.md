@@ -10,17 +10,23 @@ coplanar-fan 再三角形化へ渡すループで、7フレームを無人で Fo
 座標は動かさず、穴埋めも部位削除もしない。2mm／1% の形状基準は不変である。
 
 8姿勢パイロットは 4レーン × 1ワーカー × MPI 4ランクで実行し、現行家族
-`phase1-cycle-family-2` の下で9フレーム（0,3,4,8,12,20,24,28）が PASS した。
+`phase1-cycle-family-2` の下で11フレーム（0,3,4,8,9,12,14,17,20,24,28）が PASS した。
+frame 13 は 16ランク同時実行でソルバ段が段上限に達したため、単独レーンで再実行中。
 `gait_cycle.aggregate()` は 8姿勢スケジュールの frame 16 を欠くため `INCOMPLETE` を
 返し、平均値は返さない。欠落を補間せず、8本完走を必要十分なサンプル数とも主張しない。
 
 frame 16 は native Blender 表面が非閉鎖（境界辺120本・非多様体辺120本）で、
 修復候補自体は Foundation 検査を通過したが、双方向表面距離の 2mm ゲート
 （source→candidate の上限 39.04mm）で CFD 入場を拒否された。閾値は緩めていない。
+同じ原因が frame 5（42.46mm）と frame 6（57.21mm）でも実測され、いずれも
+面積 1e-16〜1e-15 m² の**退化三角形**が native 側に1枚あるだけで、形状差ではない。
+監査の source を統合済み表面に固定するか面積下限を導入するかは、版上げと A/B 実測を
+伴う契約判断として残す。
 
 詳細は [Phase B レポート](../reports/phase-b/phase-b-report.md)、
 [修復自動化](../reports/phase-b/repair-automation.md)、
-[8姿勢パイロット](../reports/phase-b/pilot-8pose.md) にある。
+[8姿勢パイロット](../reports/phase-b/pilot-8pose.md)、
+[非閉鎖クラスの診断](../reports/phase-b/frame16-diagnosis.md) にある。
 
 ## 旧停止記録（frame 3の形状監査後、2026-09-13）
 
